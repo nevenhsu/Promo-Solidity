@@ -1,0 +1,55 @@
+{
+  "name": "sharx-protocol",
+  "version": "0.0.1",
+  "description": "",
+  "main": "server.ts",
+  "private": true,
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "ts": "ts-node -r ./.env.ts -r tsconfig-paths/register --transpile-only",
+    "dev": "npm run ts -- dev.ts",
+    "start": "npx hardhat run server.ts",
+    "node": "npx hardhat node",
+    "build": "npm run clean && npm run compile",
+    "clean": "npx hardhat clean",
+    "compile": "npx hardhat compile",
+    "test": "npx hardhat test",
+    "coverage": "npm run build && npx hardhat coverage --temp artifacts --network coverage"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.1.0",
+    "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
+    "dotenv": "^16.4.7",
+    "lodash": "^4",
+    "numeral": "^2.0.6",
+    "winston": "^3.17.0"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox-viem": "^3.0.0",
+    "@nomicfoundation/hardhat-viem": "^2.0.6",
+    "@openzeppelin/hardhat-upgrades": "^3.8.0",
+    "@types/chai": "^4.3.3",
+    "@types/lodash": "^4",
+    "@types/mocha": "^10",
+    "@types/node": "^22.10.3",
+    "@types/numeral": "^2.0.5",
+    "chai-as-promised": "^8.0.1",
+    "gts": "^6",
+    "hardhat": "^2.22.17",
+    "hardhat-gas-reporter": "^1.0.9-viem.0",
+    "mocha": "^11",
+    "prettier": "^3",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4",
+    "typescript": "^5.7.2",
+    "viem": "^2.22.1"
+  },
+  "overrides": {
+    "@nomicfoundation/hardhat-toolbox-viem": {
+      "hardhat-gas-reporter": "$hardhat-gas-reporter"
+    }
+  }
+}

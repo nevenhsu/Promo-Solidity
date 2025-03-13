@@ -1,0 +1,16 @@
+{
+  "rules": {
+    "no-process-exit": "off",
+    "no-unused-vars": "off",
+    "prefer-const": "warn",
+    "prettier/prettier": "warn",
+    "n/no-extraneous-import": "off",
+    "n/no-unpublished-import": [
+      "error",
+      {
+        "ignorePrivate": true
+      }
+    ]
+  },
+  "extends": "./node_modules/gts/"
+}

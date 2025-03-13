@@ -1,0 +1,58 @@
+# dependencies
+node_modules
+.env.local
+
+# Hardhat files
+/cache
+/artifacts
+/cache
+/build
+/dist
+
+#foundry files
+/out
+/test_foundry
+/scripts_foundry
+/remappings.txt
+/foundry.toml
+
+# temp develop files
+/contracts/temp/*
+/test/temp/*
+
+# TypeChain files
+/typechain
+/typechain-types
+
+# solidity-coverage files
+/coverage
+/coverage.json
+
+.cache/
+.cache
+.temp
+
+# testing
+*test.ts
+
+# misc
+.DS_Store
+
+# logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# key
+*.pem
+wallet.json
+wallet.*.json
+mimi.json
+
+# keep
+!**/.gitkeep
+!**/*.sample
