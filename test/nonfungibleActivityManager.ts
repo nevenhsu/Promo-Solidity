@@ -106,6 +106,49 @@ describe('ActivityManager contract', function () {
     expect(activity.refundedAmount).to.equal(0n)
   })
 
+  it('Should create an activity and deposit a token after approval', async function () {
+    const { publicClient, tokenManager, activityManager, admin, getClubTokenContract } =
+      await loadFixture(deployFixture)
+
+    const tokenAddress = computeTokenAddress({
+      contract: tokenManager.address,
+      owner: admin.account.address,
+    })
+
+    await tokenManager.write.deploy(['Test Token', 'TST'])
+
+    const amount = parseUnits('1', 6)
+    const startTime = BigInt(await time.latest())
+    const endTime = startTime + 36000n
+    const token = getClubTokenContract(admin, tokenAddress)
+
+    await token.write.approve([activityManager.address, amount])
+
+    const hash = await activityManager.write.createAndDeposit([
+      admin.account.address,
+      startTime,
+      endTime,
+      tokenAddress,
+      amount,
+    ])
+
+    // From the event logs
+    const receipt = await publicClient.getTransactionReceipt({ hash })
+    const events = parseEventLogs({
+      abi: activityManager.abi,
+      logs: receipt.logs,
+      eventName: 'Deposit',
+    })
+
+    expect(events[0].args.tokenId).to.equal(1n)
+    expect(events[0].args.amount).to.equal(amount)
+    expect(events[0].args.totalAmount).to.equal(amount)
+
+    // From the contract
+    const activity = await activityManager.read.getActivity([1n])
+    expect(activity.totalAmount).to.equal(amount)
+  })
+
   it('Should permit a token and create an activity', async function () {
     const { publicClient, tokenManager, admin, activityManager } = await loadFixture(deployFixture)
 
@@ -220,6 +263,12 @@ describe('ActivityManager contract', function () {
       client: addr1,
     })
 
+    const _activityManager = getContract({
+      address: activityManager.address,
+      abi: activityManager.abi,
+      client: addr1,
+    })
+
     const tokenAddress = computeTokenAddress({
       contract: tokenManager.address,
       owner: addr1.account.address,
@@ -233,7 +282,7 @@ describe('ActivityManager contract', function () {
     const deadline = startTime + 3600n
     const { v, r, s } = await permitToken(addr1, tokenAddress, activityManager.address, amount, deadline)
 
-    await activityManager.write.createAndDepositWithPermit([
+    await _activityManager.write.createAndDepositWithPermit([
       addr1.account.address,
       startTime,
       endTime,
