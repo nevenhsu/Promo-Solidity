@@ -54,7 +54,7 @@ describe('ActivityManager contract', function () {
     expect(events[0].args.tokenId).to.equal(1n)
 
     const tokenURI = await activityManager.read.tokenURI([1n])
-    expect(tokenURI).to.equal(`https://promo-web3.vercel.app/api/nft/${activityManager.address}/1`)
+    expect(tokenURI).to.equal(`https://promo-web3.vercel.app/api/nft/1`)
   })
 
   it('Should have totalSupply and balance', async function () {
@@ -101,9 +101,6 @@ describe('ActivityManager contract', function () {
     expect(activity.startTime).to.equal(startTime)
     expect(activity.endTime).to.equal(endTime)
     expect(activity.totalAmount).to.equal(0n)
-    expect(activity.distributedAmount).to.equal(0n)
-    expect(activity.feeAmount).to.equal(0n)
-    expect(activity.refundedAmount).to.equal(0n)
   })
 
   it('Should create an activity and deposit a token after approval', async function () {
@@ -169,6 +166,7 @@ describe('ActivityManager contract', function () {
       admin.account.address,
       startTime,
       endTime,
+      admin.account.address,
       tokenAddress,
       amount,
       deadline,
@@ -215,6 +213,7 @@ describe('ActivityManager contract', function () {
       admin.account.address,
       startTime,
       endTime,
+      admin.account.address,
       tokenAddress,
       amount,
       deadline,
@@ -263,12 +262,6 @@ describe('ActivityManager contract', function () {
       client: addr1,
     })
 
-    const _activityManager = getContract({
-      address: activityManager.address,
-      abi: activityManager.abi,
-      client: addr1,
-    })
-
     const tokenAddress = computeTokenAddress({
       contract: tokenManager.address,
       owner: addr1.account.address,
@@ -282,10 +275,11 @@ describe('ActivityManager contract', function () {
     const deadline = startTime + 3600n
     const { v, r, s } = await permitToken(addr1, tokenAddress, activityManager.address, amount, deadline)
 
-    await _activityManager.write.createAndDepositWithPermit([
+    await activityManager.write.createAndDepositWithPermit([
       addr1.account.address,
       startTime,
       endTime,
+      addr1.account.address,
       tokenAddress,
       amount,
       deadline,
@@ -315,7 +309,7 @@ describe('ActivityManager contract', function () {
 
     expect(events[0].args.tokenId).to.equal(1n)
     expect(events[0].args.feeAmount).to.equal(feeAmount)
-    expect(events[0].args.distributedAmount).to.equal(distributedAmount)
+    expect(events[0].args.amount).to.equal(distributedAmount)
 
     const redundEvents = parseEventLogs({
       abi: activityManager.abi,
@@ -324,14 +318,11 @@ describe('ActivityManager contract', function () {
     })
 
     expect(redundEvents[0].args.tokenId).to.equal(1n)
-    expect(redundEvents[0].args.refundedAmount).to.equal(halfAmount)
+    expect(redundEvents[0].args.amount).to.equal(halfAmount)
 
     // From the contract
     const activity = await activityManager.read.getActivity([1n])
     expect(activity.totalAmount).to.equal(amount)
-    expect(activity.distributedAmount).to.equal(distributedAmount)
-    expect(activity.feeAmount).to.equal(feeAmount)
-    expect(activity.refundedAmount).to.equal(halfAmount)
 
     // From the token contract
     const clubTokenContract = getClubTokenContract(addr1, tokenAddress)
@@ -360,6 +351,7 @@ describe('ActivityManager contract', function () {
       admin.account.address,
       startTime,
       endTime,
+      admin.account.address,
       tokenAddress,
       amount,
       deadline,
@@ -382,14 +374,11 @@ describe('ActivityManager contract', function () {
       eventName: 'Refund',
     })
     expect(redundEvents[0].args.tokenId).to.equal(1n)
-    expect(redundEvents[0].args.refundedAmount).to.equal(amount)
+    expect(redundEvents[0].args.amount).to.equal(amount)
 
     // From the contract
     const activity = await activityManager.read.getActivity([1n])
     expect(activity.totalAmount).to.equal(amount)
-    expect(activity.refundedAmount).to.equal(amount)
-    expect(activity.distributedAmount).to.equal(0n)
-    expect(activity.feeAmount).to.equal(0n)
 
     // From the token contract
     const clubTokenContract = getClubTokenContract(admin, tokenAddress)

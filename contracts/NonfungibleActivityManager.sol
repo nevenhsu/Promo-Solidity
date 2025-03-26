@@ -14,15 +14,18 @@ contract NonfungibleActivityManager is ERC721Pausable, AccessControl {
   using Strings for address;
   using Strings for uint256;
 
+  enum ActivityStatus {
+    Active,
+    Distributed,
+    Refunded
+  }
   struct Activity {
     address owner;
     address token;
     uint64 startTime;
     uint64 endTime;
     uint128 totalAmount; // Amount of prize in ERC-20 tokens
-    uint128 distributedAmount; // Amount of distributed prize
-    uint128 refundedAmount; // Amount of refunded prize
-    uint128 feeAmount; // Amount of fee
+    ActivityStatus status;
   }
 
   bytes32 public constant ADMIN_ROLE = keccak256('ADMIN_ROLE');
@@ -36,10 +39,10 @@ contract NonfungibleActivityManager is ERC721Pausable, AccessControl {
 
   mapping(uint256 tokenId => Activity) private _activities;
 
-  event Create(address indexed owner, address token, uint256 tokenId, uint64 startTime, uint64 endTime);
-  event Distribute(uint256 tokenId, uint128 distributedAmount, uint128 feeAmount);
-  event Refund(uint256 tokenId, uint128 refundedAmount);
-  event Deposit(uint256 tokenId, uint128 amount, uint128 totalAmount);
+  event Create(uint256 indexed tokenId, address indexed owner, address token, uint64 startTime, uint64 endTime);
+  event Distribute(uint256 indexed tokenId, address indexed to, uint128 amount, uint128 feeAmount);
+  event Refund(uint256 indexed tokenId, address indexed to, uint128 amount);
+  event Deposit(uint256 indexed tokenId, uint128 amount, uint128 totalAmount);
 
   constructor(
     address _treasury,
@@ -97,6 +100,7 @@ contract NonfungibleActivityManager is ERC721Pausable, AccessControl {
     address owner,
     uint64 startTime,
     uint64 endTime,
+    address from,
     address token,
     uint128 amount,
     uint256 deadline,
@@ -105,19 +109,15 @@ contract NonfungibleActivityManager is ERC721Pausable, AccessControl {
     bytes32 s
   ) external whenNotPaused returns (uint256 tokenId) {
     tokenId = _create(owner, token, startTime, endTime);
-    _depositWithPermit(tokenId, token, _msgSender(), amount, deadline, v, r, s);
+    _depositWithPermit(tokenId, token, from, amount, deadline, v, r, s);
   }
 
   /// @notice Deposit tokens to the activity
   /// @param tokenId - The ID of the activity
   /// @param token - The token address to deposit
   /// @param amount - The amount of tokens to deposit
-  function deposit(
-    uint256 tokenId,
-    address token,
-    uint128 amount
-  ) external whenNotPaused returns (uint256 totalAmount) {
-    totalAmount = _deposit(tokenId, _msgSender(), token, amount);
+  function deposit(uint256 tokenId, address token, uint128 amount) external whenNotPaused {
+    _deposit(tokenId, _msgSender(), token, amount);
   }
 
   function depositWithPermit(
@@ -129,66 +129,54 @@ contract NonfungibleActivityManager is ERC721Pausable, AccessControl {
     uint8 v,
     bytes32 r,
     bytes32 s
-  ) external whenNotPaused returns (uint256 totalAmount) {
-    totalAmount = _depositWithPermit(tokenId, token, from, amount, deadline, v, r, s);
+  ) external whenNotPaused {
+    _depositWithPermit(tokenId, token, from, amount, deadline, v, r, s);
   }
 
   /// @notice Distribute the tokens to the airdrop manager
   /// @param tokenId - The ID of the activity
   /// @param amount - The amount of tokens to distribute
-  /// @return distributedAmount - The amount of tokens distributed
-  /// @return feeAmount - The amount of fee
-  /// @return refundedAmount - The amount of tokens refunded
-  function distribute(
-    uint256 tokenId,
-    uint128 amount
-  )
-    external
-    whenNotPaused
-    onlyRole(ADMIN_ROLE)
-    returns (uint128 distributedAmount, uint128 feeAmount, uint128 refundedAmount)
-  {
-    Activity storage activity = _validateActivity(tokenId);
+  function distribute(uint256 tokenId, uint128 amount) external whenNotPaused onlyRole(ADMIN_ROLE) {
+    Activity storage activity = _requireActiveActivity(tokenId);
+    require(block.timestamp >= activity.endTime, 'Activity not finished');
+    require(amount > 0 && amount <= activity.totalAmount, 'Invalid amount');
+    activity.status = ActivityStatus.Distributed;
 
-    require(block.timestamp >= activity.endTime, 'Activity is not finished');
-    require(amount > 0, 'Amount must be greater than zero');
-    require(amount <= activity.totalAmount, 'Invalid amount');
+    (uint128 feeAmount, uint128 netAmount) = _calculateFee(amount);
 
-    (feeAmount, distributedAmount) = _calculateFee(amount);
     if (feeAmount > 0) {
-      activity.feeAmount += feeAmount;
       IERC20(activity.token).safeTransfer(treasury, feeAmount);
     }
 
-    if (distributedAmount > 0) {
-      activity.distributedAmount += distributedAmount;
-      IERC20(activity.token).safeTransfer(airdropManager, distributedAmount);
-      emit Distribute(tokenId, distributedAmount, feeAmount);
+    if (netAmount > 0) {
+      IERC20(activity.token).safeTransfer(airdropManager, netAmount);
     }
 
     // refund the remaining amount to the owner
-    refundedAmount = activity.totalAmount - amount;
-    if (refundedAmount > 0) {
-      activity.refundedAmount += refundedAmount;
-      IERC20(activity.token).safeTransfer(activity.owner, refundedAmount);
-      emit Refund(tokenId, refundedAmount);
+    uint128 remaining = activity.totalAmount - amount;
+    if (remaining > 0) {
+      IERC20(activity.token).safeTransfer(activity.owner, remaining);
+      emit Refund(tokenId, activity.owner, remaining);
     }
+
+    emit Distribute(tokenId, airdropManager, netAmount, feeAmount);
   }
 
   /// @notice Refund the tokens to the owner of the activity after the refund time
   /// @param tokenId - The ID of the activity
-  /// @return refundedAmount - The amount of tokens refunded
-  function refund(uint256 tokenId) external whenNotPaused returns (uint128 refundedAmount) {
-    Activity storage activity = _validateActivity(tokenId);
-
+  function refund(uint256 tokenId) external whenNotPaused {
+    Activity storage activity = _requireActiveActivity(tokenId);
     require(activity.totalAmount > 0, 'No funds to distribute');
-    require(block.timestamp >= activity.endTime + refundTime, 'Refund time has not come yet');
+    require(block.timestamp > activity.endTime + refundTime, 'Refund time has not come yet');
+    activity.status = ActivityStatus.Refunded;
 
-    refundedAmount = activity.totalAmount;
-    activity.refundedAmount += refundedAmount;
+    IERC20(activity.token).safeTransfer(activity.owner, activity.totalAmount);
+    emit Refund(tokenId, activity.owner, activity.totalAmount);
+  }
 
-    IERC20(activity.token).safeTransfer(activity.owner, refundedAmount);
-    emit Refund(tokenId, refundedAmount);
+  function isRefundable(uint256 tokenId) public view returns (bool) {
+    Activity memory a = _activities[tokenId];
+    return a.status == ActivityStatus.Active && a.totalAmount > 0 && block.timestamp > a.endTime + refundTime;
   }
 
   function setAirdropManager(address _airdropManager) external onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -216,12 +204,9 @@ contract NonfungibleActivityManager is ERC721Pausable, AccessControl {
 
   /// @notice Make sure the activity is valid and not finished
   /// @param tokenId - The ID of the activity
-  function _validateActivity(uint256 tokenId) internal view returns (Activity storage activity) {
+  function _requireActiveActivity(uint256 tokenId) internal view returns (Activity storage activity) {
     activity = _activities[tokenId];
-
-    require(activity.owner != address(0), 'Invalid activity');
-    require(activity.distributedAmount == 0, 'Amount already distributed');
-    require(activity.refundedAmount == 0, 'Amount already refunded');
+    require(activity.status == ActivityStatus.Active, 'Activity already finalized');
   }
 
   function _calculateFee(uint128 amount) internal view returns (uint128 feeAmount, uint128 netAmount) {
@@ -243,14 +228,12 @@ contract NonfungibleActivityManager is ERC721Pausable, AccessControl {
       startTime: startTime,
       endTime: endTime,
       totalAmount: 0,
-      distributedAmount: 0,
-      refundedAmount: 0,
-      feeAmount: 0
+      status: ActivityStatus.Active
     });
 
     ++_nextTokenId;
 
-    emit Create(owner, token, tokenId, startTime, endTime);
+    emit Create(tokenId, owner, token, startTime, endTime);
   }
 
   function _depositWithPermit(
@@ -262,18 +245,13 @@ contract NonfungibleActivityManager is ERC721Pausable, AccessControl {
     uint8 v,
     bytes32 r,
     bytes32 s
-  ) private returns (uint128 totalAmount) {
+  ) private {
     IERC20Permit(token).permit(from, address(this), amount, deadline, v, r, s);
-    totalAmount = _deposit(tokenId, from, token, amount);
+    _deposit(tokenId, from, token, amount);
   }
 
-  function _deposit(
-    uint256 tokenId,
-    address from,
-    address token,
-    uint128 amount
-  ) private returns (uint128 totalAmount) {
-    Activity storage activity = _validateActivity(tokenId);
+  function _deposit(uint256 tokenId, address from, address token, uint128 amount) private {
+    Activity storage activity = _requireActiveActivity(tokenId);
 
     require(block.timestamp < activity.endTime, 'Activity is finished');
     require(token == activity.token, 'Invalid token');
@@ -281,9 +259,8 @@ contract NonfungibleActivityManager is ERC721Pausable, AccessControl {
 
     IERC20(token).safeTransferFrom(from, address(this), amount);
     activity.totalAmount += amount;
-    totalAmount = activity.totalAmount;
 
-    emit Deposit(tokenId, amount, totalAmount);
+    emit Deposit(tokenId, amount, activity.totalAmount);
   }
 
   function supportsInterface(bytes4 interfaceId) public view override(ERC721, AccessControl) returns (bool) {
